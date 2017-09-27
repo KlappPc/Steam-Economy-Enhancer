@@ -19,9 +19,6 @@
 // @require     https://raw.githubusercontent.com/javve/list.js/v1.5.0/dist/list.min.js
 // @require     https://github.com/rmariuzzo/checkboxes.js/releases/download/v1.2.0/jquery.checkboxes-1.2.0.min.js
 // @homepageURL https://github.com/Nuklon/Steam-Economy-Enhancer
-// @supportURL  https://github.com/Nuklon/Steam-Economy-Enhancer/issues
-// @downloadURL https://raw.githubusercontent.com/Nuklon/Steam-Economy-Enhancer/master/code.user.js
-// @updateURL   https://raw.githubusercontent.com/Nuklon/Steam-Economy-Enhancer/master/code.user.js
 // ==/UserScript==
 
 // jQuery is already added by Steam, force no conflict mode.
@@ -233,114 +230,186 @@
     }
 
     // Calculates the average history price, before the fee.
-    function calculateAverageHistoryPriceBeforeFees(history) {
-        var highest = 0;
-        var total = 0;
-
-        if (history != null) {
-            // Highest average price in the last 12 hours.
-            var timeAgo = Date.now() - (12 * 60 * 60 * 1000);
-
-            history.forEach(function (historyItem) {
-                var d = new Date(historyItem[0]);
-                if (d.getTime() > timeAgo) {
-                    highest += historyItem[1] * historyItem[2];
-                    total += historyItem[2];
-                }
-            });
-        }
-
-        if (total == 0)
-            return 0;
-
-        highest = Math.floor(highest / total);
-        return market.getPriceBeforeFees(highest);
+  function calculateAverageHistoryPriceBeforeFees(history) {
+    var highest = 0;
+    var total = 0;
+    var hours = 96;
+    if (history == null) {
+      var marketHigh = - 1;
+      var total = - 1;
+      var rare = false;
+      return {
+        marketHigh,
+        total,
+        rare
+      };
+    } 
+	
+	// Highest average price in the last "hours" hours.
+    var timeAgo = Date.now() - (hours * 60 * 60 * 1000);
+    history.forEach(function (historyItem) {
+      var d = new Date(historyItem[0]);
+      if (d.getTime() > timeAgo) {
+        highest += historyItem[1] * historyItem[2];
+        total += historyItem[2];
+      }
+    });
+    var rare = false;
+    var schnitt = 0;
+    if (total == 0) {
+      hours = 2400;
+      rare = true;
+    } else {
+      schnitt = Math.floor(highest / total);
     }
+    highest = 0;
+    var total2 = 0;
+    history.forEach(function (historyItem) {
+      var d = new Date(historyItem[0]);
+      if (d.getTime() > timeAgo && historyItem[1] >= (schnitt - 1)) {
+        highest += historyItem[1] * historyItem[2];
+        total2 += historyItem[2];
+      }
+    });
+    if (total2 == 0)
+    return 0;
+    var marketHigh = market.getPriceBeforeFees(highest / total2);
+    return {
+      marketHigh,
+      total,
+      rare
+    };
+  }
 
     // Calculates the listing price, before the fee.    
-    function calculateListingPriceBeforeFees(histogram) {
-        if (histogram == null ||
-            histogram.lowest_sell_order == null ||
-            histogram.sell_order_graph == null)
-            return 0;
-
-        var listingPrice = market.getPriceBeforeFees(histogram.lowest_sell_order);
-
-        var shouldIgnoreLowestListingOnLowQuantity = getSettingWithDefault(SETTING_PRICE_IGNORE_LOWEST_Q) == 1;
-
-        if (shouldIgnoreLowestListingOnLowQuantity && histogram.sell_order_graph.length >= 2) {
-            var listingPrice2ndLowest = market.getPriceBeforeFees(histogram.sell_order_graph[1][0] * 100);
-
-            if (listingPrice2ndLowest > listingPrice) {
-                var numberOfListingsLowest = histogram.sell_order_graph[0][1];
-                var numberOfListings2ndLowest = histogram.sell_order_graph[1][1];
-
-                var percentageLower = (100 * (numberOfListingsLowest / numberOfListings2ndLowest));
-
-                // The percentage should change based on the quantity (for example, 1200 listings vs 5, or 1 vs 25).
-                if (numberOfListings2ndLowest >= 1000 && percentageLower <= 5) {
-                    listingPrice = listingPrice2ndLowest;
-                } else if (numberOfListings2ndLowest < 1000 && percentageLower <= 10) {
-                    listingPrice = listingPrice2ndLowest;
-                } else if (numberOfListings2ndLowest < 100 && percentageLower <= 15) {
-                    listingPrice = listingPrice2ndLowest;
-                } else if (numberOfListings2ndLowest < 50 && percentageLower <= 20) {
-                    listingPrice = listingPrice2ndLowest;
-                } else if (numberOfListings2ndLowest < 25 && percentageLower <= 25) {
-                    listingPrice = listingPrice2ndLowest;
-                } else if (numberOfListings2ndLowest < 10 && percentageLower <= 30) {
-                    listingPrice = listingPrice2ndLowest;
-                }
-            }
-        }
-
-        return listingPrice;
+  function calculateListingPriceBeforeFees(histogram, total, historyPrice, rare) {
+    if (histogram == null || histogram.lowest_sell_order == null || histogram.sell_order_graph == null)
+    return 0;
+    var listingPrice = market.getPriceBeforeFees(histogram.lowest_sell_order);
+    if (historyPrice == - 1) { //item has never been sold, sell as lowest.
+      console.debug('added item for lowest due to no history');
+      if(listingPrice>7)
+      return listingPrice;
+      if(listingPrice>3)
+      return listingPrice+1;
+      if(listingPrice>1)
+      return listingPrice+2;
+      return listingPrice+3;
     }
+    var hasSecond = histogram.sell_order_graph.length > 1;
+    var hasThird = histogram.sell_order_graph.length > 2;
+    var second = - 1;
+    var third = - 1;
+    var secondA = - 1;
+    var thirdA = - 1;
+    var firstA = histogram.sell_order_graph[0][1];
+    if (hasSecond) {
+      second = market.getPriceBeforeFees(histogram.sell_order_graph[1][0] * 100);
+      secondA = histogram.sell_order_graph[1][1];
+    }
+    if (hasThird) {
+      third = market.getPriceBeforeFees(histogram.sell_order_graph[2][0] * 100);
+      thirdA = histogram.sell_order_graph[2][1];
+    }
+    if (listingPrice > 7) { //10 or more cents in total
+      console.debug("entered 7");
+      if (rare) return listingPrice; // if rarly sold always go for cheapest.
+      var secondWayMoreExpensive = false;
+      var historyMoreExpensive = (historyPrice / listingPrice > 1.2);
+      var firstAmountIsLow = (total / firstA > 2);
+      var historyMoreExpensiveThanSecond = false;
+      var secondAmountIsLow = false;
+      if (hasSecond) {
+        secondWayMoreExpensive = (second / listingPrice > 1.2);
+        historyMoreExpensiveThanSecond = (historyPrice / second > 1.5);
+        secondAmountIsLow = (total / (firstA + secondA) > 2)
+      }
+      if(hasThird){
+        if((total / (firstA + secondA + thirdA) > 2) && historyPrice>=third) return third+1; //if 1 and 2 and 2 still low and 3 below history sell for 3.
+        if(secondAmountIsLow && historyMoreExpensiveThanSecond) return third;
+      }
+      if(historyMoreExpensiveThanSecond && secondAmountIsLow) return historyPrice;
+      if(firstAmountIsLow && secondWayMoreExpensive) return second;
+      if(secondAmountIsLow) return second;
+      if(firstAmountIsLow) return listingPrice+1;
+      return listingPrice;
+    }
+    if (listingPrice > 4) { //7,8,9 cents in total
+      console.debug("entered 4");
+      if(rare && ((total / firstA < 0.4) || firstA > 10)) return listingPrice; //rare and many offers.
+      if(rare) return listingPrice+1;
+      if(hasThird){
+        if(total / (firstA + secondA + thirdA) > 0.6) return third+1;
+      }
+      if (hasSecond) {
+        if((total / (firstA + secondA) > 0.4 && historyPrice >=second) || (total / (firstA + secondA) > 0.6)) return second+1;
+      }
+      if(total / (firstA) > 0.1) return listingPrice+1;
+      return listingPrice;
+    }
+    console.debug("below 4");
+    // lP 1,2,3,4 = 3,4,5,6 cent remaining.
+    if(listingPrice == 1){
+      if(rare) return -1;
+      if(hasSecond && (total / (firstA + secondA) > 1.2) && historyPrice >2) return 4;
+      if (total / (firstA) > 1.2) return 3;
+      return -1;
+    }
+    
+    if(listingPrice == 2){
+      if(rare && (total / (firstA) > 10)) return 4;
+      if(rare) return 3;
+      if(hasSecond && (total / (firstA + secondA) > 1.2) && historyPrice >3 ) return 5;
+      if (total / (firstA) > 1.5) return 4;
+      return 3;
+    }
+    if(listingPrice == 3){
+      if(rare && (total / (firstA) > 10)) return 5;
+      if(rare) return 4;
+      if(hasSecond && (total / (firstA + secondA) > 1.2) && historyPrice >4 ) return 6;
+      if (total / (firstA) > 1.5 && (total / (secondA) > 0.1)) return 5;
+      return 4;
+    }
+    if(listingPrice == 4){
+      if(rare && (total / (firstA) > 10)) return 6;
+      if(rare) return 5;
+      if(hasSecond && (total / (firstA + secondA) > 1.2) && historyPrice >5) return 7;
+      if (total / (firstA) > 1.5 && (total / (secondA) > 0.1)) return 6;
+      return 5;
+    }
+return -1;
+  }
 
     // Calculate the sell price based on the history and listings.
     // applyOffset specifies whether the price offset should be applied when the listings are used to determine the price.
     function calculateSellPriceBeforeFees(history, histogram, applyOffset, minPriceBeforeFees, maxPriceBeforeFees) {
-        var historyPrice = calculateAverageHistoryPriceBeforeFees(history);
-        var listingPrice = calculateListingPriceBeforeFees(histogram);
+    var historyPrice = calculateAverageHistoryPriceBeforeFees(history);
+    var total = historyPrice.total;
+    var rare = historyPrice.rare;
+    historyPrice = historyPrice.marketHigh;
+    var listingPrice = calculateListingPriceBeforeFees(histogram, total, historyPrice, rare);
+    if (listingPrice == - 1)
+    return - 1;
+    var calculatedPrice = listingPrice;
+    var changedToMax = false;
+    // List for the maximum price if there are no listings yet.
+    if (listingPrice == 0) {
+      calculatedPrice = maxPriceBeforeFees;
+      changedToMax = true;
+    }    // Apply the offset to the calculated price, but only if the price wasn't changed to the max (as otherwise it's impossible to list for this price).
 
-        var shouldUseAverage = getSettingWithDefault(SETTING_PRICE_ALGORITHM) == 1;
+    if (!changedToMax && applyOffset) {
+      calculatedPrice = calculatedPrice + (getSettingWithDefault(SETTING_PRICE_OFFSET) * 100);
+    }    // Keep our minimum and maximum in mind.
 
-        // If the highest average price is lower than the first listing, return the offset + that listing.
-        // Otherwise, use the highest average price instead.
-        var calculatedPrice = 0;
-
-        if (historyPrice < listingPrice || !shouldUseAverage) {
-            calculatedPrice = listingPrice;
-        } else {
-            calculatedPrice = historyPrice;
-        }
-
-        var changedToMax = false;
-        // List for the maximum price if there are no listings yet.
-        if (calculatedPrice == 0) {
-            calculatedPrice = maxPriceBeforeFees;
-            changedToMax = true;
-        }
-
-
-        // Apply the offset to the calculated price, but only if the price wasn't changed to the max (as otherwise it's impossible to list for this price).
-        if (!changedToMax && applyOffset) {
-            calculatedPrice = calculatedPrice + (getSettingWithDefault(SETTING_PRICE_OFFSET) * 100);
-        }
-
-
-        // Keep our minimum and maximum in mind.
-        calculatedPrice = clamp(calculatedPrice, minPriceBeforeFees, maxPriceBeforeFees);
-
-
-        // In case there's a buy order higher than the calculated price.
-        if (histogram != null && histogram.highest_buy_order != null) {
-            var buyOrderPrice = market.getPriceBeforeFees(histogram.highest_buy_order);
-            if (buyOrderPrice > calculatedPrice)
-                calculatedPrice = buyOrderPrice;
-        }
-
-        return calculatedPrice;
+    calculatedPrice = clamp(calculatedPrice, minPriceBeforeFees, maxPriceBeforeFees);
+    // In case there's a buy order higher than the calculated price.
+    if (histogram != null && histogram.highest_buy_order != null) {
+      var buyOrderPrice = market.getPriceBeforeFees(histogram.highest_buy_order);
+      if (buyOrderPrice > calculatedPrice || (buyOrderPrice > calculatedPrice * 0.8 && buyOrderPrice > 20) || (buyOrderPrice > calculatedPrice * 0.6 && buyOrderPrice > 40 && total < 5) || (buyOrderPrice > calculatedPrice * 0.6 && rare))
+      calculatedPrice = buyOrderPrice;
+    }
+    return calculatedPrice;
     }
     //#endregion
 
@@ -1320,10 +1389,12 @@
                                 market.getPriceIncludingFees(sellPrice) / 100.0 +
                                 ')');
 
-                            sellQueue.push({
-                                item: item,
-                                sellPrice: sellPrice
-                            });
+          if (sellPrice != - 1) {
+            sellQueue.push({
+              item: item,
+              sellPrice: sellPrice
+            });
+          }
 
                             return callback(true, cachedHistory && cachedListings);
                         });
@@ -1770,9 +1841,11 @@
                     }
 
                     var sellPrice = calculateSellPriceBeforeFees(null, histogram, false, 0, 65535);
-                    var itemPrice = sellPrice == 65535
-                        ? '∞'
-                        : (market.getPriceIncludingFees(sellPrice) / 100.0).toFixed(2) + currencySymbol;
+        var itemPrice = '';
+		if (sellPrice == 65535 || sellPrice <= 0)
+        itemPrice = '∞' 
+        else
+        itemPrice = (market.getPriceIncludingFees(sellPrice) / 100).toFixed(2) + currencySymbol;
 
                     var elementName = (currentPage == PAGE_TRADEOFFER ? '#item' : '#') +
                         item.appid +
